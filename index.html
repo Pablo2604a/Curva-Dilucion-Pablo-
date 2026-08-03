@@ -318,7 +318,7 @@
 
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
-  .table-scroll table { min-width: 620px; }
+  .table-scroll table { min-width: 700px; }
   thead th {
     text-align: left;
     padding: 0 8px 10px;
@@ -502,6 +502,10 @@
     <h2>Agregar punto de muestreo</h2>
     <div class="row">
       <div class="field">
+        <label>Fecha</label>
+        <input type="date" id="inFecha">
+      </div>
+      <div class="field">
         <label>Biomasa (t MS/ha)</label>
         <input type="number" id="inW" step="0.1" min="0" placeholder="ej. 3.2">
       </div>
@@ -540,6 +544,7 @@
     <table>
       <thead>
         <tr>
+          <th>Fecha</th>
           <th>ID</th>
           <th>W (t MS/ha)</th>
           <th>% N obs</th>
@@ -758,6 +763,7 @@ function renderTable() {
     const dosis = calcDosisRecomendada(d.W, d.N);
     const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td>${d.fecha || '-'}</td>
       <td>${d.id || '-'}</td>
       <td>${d.W.toFixed(1)}</td>
       <td>${d.N.toFixed(1)}</td>
@@ -999,12 +1005,14 @@ document.getElementById('btnAdd').addEventListener('click', () => {
   const W = parseFloat(document.getElementById('inW').value);
   const N = parseFloat(document.getElementById('inN').value);
   const id = document.getElementById('inId').value.trim();
+  const fecha = document.getElementById('inFecha').value;
   if (!isNaN(W) && !isNaN(N) && W > 0 && N > 0) {
     const nPrevios = getDatosCultivo().length;
-    state.datos.push({ id: id || ('P' + (nPrevios + 1)), W, N, cultivo: state.cultivo });
+    state.datos.push({ id: id || ('P' + (nPrevios + 1)), W, N, fecha, cultivo: state.cultivo });
     document.getElementById('inW').value = '';
     document.getElementById('inN').value = '';
     document.getElementById('inId').value = '';
+    document.getElementById('inFecha').value = '';
     save();
     renderAll();
   }
@@ -1031,6 +1039,7 @@ function buildResultRows() {
     const dosis = Math.round(Math.max(0, deficitAbsorbido / eficiencia - aporte));
     return {
       Cultivo: cultivoRow,
+      Fecha: d.fecha || '',
       ID: d.id,
       'Biomasa (t MS/ha)': d.W,
       '% N observado': d.N,
@@ -1044,7 +1053,7 @@ function buildResultRows() {
 
 document.getElementById('btnExport').addEventListener('click', () => {
   const rows = buildResultRows();
-  const headers = ['Cultivo', 'ID', 'Biomasa (t MS/ha)', '% N observado', '% Nc', 'NNI', 'Estado', 'Dosis recomendada (kg N/ha)'];
+  const headers = ['Cultivo', 'Fecha', 'ID', 'Biomasa (t MS/ha)', '% N observado', '% Nc', 'NNI', 'Estado', 'Dosis recomendada (kg N/ha)'];
   let csv = headers.join(',') + '\n';
   rows.forEach(r => { csv += headers.map(h => r[h]).join(',') + '\n'; });
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -1060,7 +1069,7 @@ document.getElementById('btnExportXLSX').addEventListener('click', () => {
   const rows = buildResultRows();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
-    { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 22 }
+    { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 18 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 22 }
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
