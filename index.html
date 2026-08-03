@@ -17,7 +17,7 @@
 
 <!-- Contador de visitas (GoatCounter, gratis y sin cookies) -->
 <!-- Reemplazá "TU-CODIGO" por el código de tu cuenta gratuita en goatcounter.com -->
-<script data-goatcounter="https://pablo26.goatcounter.com/count"
+<script data-goatcounter="https://TU-CODIGO.goatcounter.com/count"
         async src="//gc.zgo.at/count.js"></script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -116,6 +116,23 @@
   }
   @media (max-width: 720px) {
     .hero-curve { display: none; }
+  }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 14px; }
+    .hero { padding: 26px 14px 60px; }
+    .card { padding: 16px 16px; margin-bottom: 14px; }
+    .row { gap: 10px; }
+    /* 16px evita que iOS haga zoom automático al enfocar un campo */
+    input, select { font-size: 16px; }
+    input { width: 100px; }
+    button { padding: 9px 12px; font-size: 13px; }
+    .equation-panel { flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px; }
+    .stat-chip { min-width: 70px; padding: 8px 10px; }
+    .stat-chip .stat-num { font-size: 19px; }
+    .crop-pill { padding: 7px 12px; font-size: 13px; }
+    .toolbar { gap: 6px; }
+    .hero h1 { line-height: 1.18; }
   }
 
   .brand-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
@@ -300,6 +317,8 @@
   button.secondary:hover { background: #f7f6ee; border-color: var(--ink-soft); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+  .table-scroll table { min-width: 620px; }
   thead th {
     text-align: left;
     padding: 0 8px 10px;
@@ -517,6 +536,7 @@
 
   <div class="card">
     <h2>Datos y resultados <span class="tag">NNI = %N obs / %Nc</span></h2>
+    <div class="table-scroll">
     <table>
       <thead>
         <tr>
@@ -526,11 +546,13 @@
           <th>% Nc</th>
           <th>NNI</th>
           <th>Estado</th>
+          <th>Dosis (kg N/ha)</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
+    </div>
     <div id="emptyMsg" class="empty" style="display:none;">Todavía no agregaste puntos de muestreo.</div>
   </div>
 
@@ -554,9 +576,38 @@
           <label>Plateau (% N bajo Wt)</label>
           <input type="number" id="coefPlateau" step="0.01">
         </div>
+        <div class="field">
+          <label>Eficiencia recuperación N (0-1)</label>
+          <input type="number" id="coefEficiencia" step="0.05" min="0.1" max="1">
+        </div>
         <button class="secondary" id="btnReset">Restaurar valores por defecto</button>
       </div>
-      <p class="coef-note">Valores por defecto de literatura (recalibrables): trigo a=5.35 b=0.442 (Justes et al. 1994), cebada a=4.90 b=0.310, colza a=5.21 b=0.360 (Ferreira y Ernst, 2014, R²=0.87 — validada en Uruguay para 0,55 a 5,97 Mg MS/ha; INN crítico C1 = 1,04). %Nc = a·W^-b para W ≥ Wt, constante por debajo.</p>
+      <p class="coef-note">Valores por defecto de literatura (recalibrables): trigo a=5.35 b=0.442 (Justes et al. 1994), cebada a=4.90 b=0.310, colza a=5.21 b=0.360 (Ferreira y Ernst, 2014, R²=0.87 — validada en Uruguay para 0,55 a 5,97 Mg MS/ha; INN crítico C1 = 1,04). %Nc = a·W^-b para W ≥ Wt, constante por debajo. Dosis recomendada = déficit de N absorbido / eficiencia de recuperación del fertilizante (0.5 por defecto — ajustable según tu experiencia de campo).</p>
+
+      <h2 style="margin-top:22px; font-size:15px;">Aporte de N del suelo</h2>
+      <div class="row">
+        <div class="field">
+          <label>Nivel para esta chacra</label>
+          <div class="crop-toggle" id="aporteToggle">
+            <button type="button" class="crop-pill" data-nivel="bajo">Bajo</button>
+            <button type="button" class="crop-pill" data-nivel="medio">Medio</button>
+            <button type="button" class="crop-pill" data-nivel="alto">Alto</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Bajo (kg N/ha)</label>
+          <input type="number" id="aporteBajo" step="5" min="0">
+        </div>
+        <div class="field">
+          <label>Medio (kg N/ha)</label>
+          <input type="number" id="aporteMedio" step="5" min="0">
+        </div>
+        <div class="field">
+          <label>Alto (kg N/ha)</label>
+          <input type="number" id="aporteAlto" step="5" min="0">
+        </div>
+      </div>
+      <p class="coef-note">Estimación del N que el suelo va a mineralizar y aportar por su cuenta (se descuenta de la dosis a fertilizar). No hay una tabla única validada para Uruguay — estos son valores de partida orientativos según guías de INIA (menos de 10 ppm N-NO3 a la siembra = situación de aporte bajo; más de 18-20 ppm = aporte alto). Ajustalos con tu propio análisis de suelo o experiencia de cada chacra — es el parámetro más importante para calibrar bien.</p>
     </details>
   </div>
 
@@ -582,6 +633,8 @@ const STORAGE_KEY = 'curva_dilucion_n_data_v1';
 let state = load() || {
   cultivo: 'trigo',
   coef: { ...DEFAULT_COEF.trigo },
+  eficiencia: 0.5,
+  aporteSuelo: { nivel: 'medio', bajo: 15, medio: 30, alto: 50 },
   datos: [
     { id: 'P1', W: 0.8, N: 4.6, cultivo: 'trigo' },
     { id: 'P2', W: 2.3, N: 3.2, cultivo: 'trigo' },
@@ -589,6 +642,8 @@ let state = load() || {
     { id: 'P4', W: 6.0, N: 1.9, cultivo: 'trigo' }
   ]
 };
+if (state.eficiencia === undefined) state.eficiencia = 0.5;
+if (!state.aporteSuelo) state.aporteSuelo = { nivel: 'medio', bajo: 15, medio: 30, alto: 50 };
 
 function load() {
   try {
@@ -619,6 +674,14 @@ function estado(nni) {
   return 'optimo';
 }
 
+function calcDosisRecomendada(W, Nobs) {
+  const nc = Nc(W);
+  const deficitAbsorbido = Math.max(0, (nc - Nobs)) * W * 10; // kg N/ha
+  const eficiencia = state.eficiencia || 0.5;
+  const aporte = state.aporteSuelo[state.aporteSuelo.nivel] || 0;
+  return Math.round(Math.max(0, deficitAbsorbido / eficiencia - aporte));
+}
+
 const estadoLabel = { deficiente: 'Deficiente', optimo: 'Óptimo', exceso: 'Exceso' };
 const estadoHex = { deficiente: '#a13d2e', optimo: '#2f5233', exceso: '#3a5a78' };
 const CURVE_COLOR = '#b3811f';
@@ -626,13 +689,20 @@ const CURVE_COLOR = '#b3811f';
 let chart;
 
 function renderInputs() {
-  document.querySelectorAll('.crop-pill').forEach(btn => {
+  document.querySelectorAll('#cropToggle .crop-pill').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.crop === state.cultivo);
   });
   document.getElementById('coefA').value = state.coef.a;
   document.getElementById('coefB').value = state.coef.b;
   document.getElementById('coefWt').value = state.coef.Wt;
   document.getElementById('coefPlateau').value = state.coef.plateau !== undefined ? state.coef.plateau : state.coef.a;
+  document.getElementById('coefEficiencia').value = state.eficiencia;
+  document.getElementById('aporteBajo').value = state.aporteSuelo.bajo;
+  document.getElementById('aporteMedio').value = state.aporteSuelo.medio;
+  document.getElementById('aporteAlto').value = state.aporteSuelo.alto;
+  document.querySelectorAll('#aporteToggle .crop-pill').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.nivel === state.aporteSuelo.nivel);
+  });
   document.getElementById('btnClearLabel').textContent = `Vaciar datos de ${state.cultivo}`;
 }
 
@@ -685,6 +755,7 @@ function renderTable() {
     const nc = Nc(d.W);
     const nni = d.N / nc;
     const est = estado(nni);
+    const dosis = calcDosisRecomendada(d.W, d.N);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${d.id || '-'}</td>
@@ -693,6 +764,7 @@ function renderTable() {
       <td>${nc.toFixed(2)}</td>
       <td>${nni.toFixed(2)}</td>
       <td><span class="badge ${est}">${estadoLabel[est]}</span></td>
+      <td>${dosis > 0 ? dosis : '—'}</td>
       <td><button class="del-btn" data-i="${d._idx}" title="Eliminar">&times;</button></td>
     `;
     tbody.appendChild(tr);
@@ -853,13 +925,23 @@ function renderAll() {
   renderChart();
 }
 
-document.querySelectorAll('.crop-pill').forEach(btn => {
+document.querySelectorAll('#cropToggle .crop-pill').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.crop === state.cultivo) return;
     state.cultivo = btn.dataset.crop;
     state.coef = { ...DEFAULT_COEF[state.cultivo] };
     save();
     renderAll();
+  });
+});
+
+document.querySelectorAll('#aporteToggle .crop-pill').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.nivel === state.aporteSuelo.nivel) return;
+    state.aporteSuelo.nivel = btn.dataset.nivel;
+    save();
+    renderInputs();
+    renderTable();
   });
 });
 
@@ -888,6 +970,23 @@ document.getElementById('coefPlateau').addEventListener('input', (e) => {
   save();
   renderTable();
   renderChart();
+});
+
+document.getElementById('coefEficiencia').addEventListener('input', (e) => {
+  let val = parseFloat(e.target.value);
+  if (isNaN(val) || val <= 0) val = 0.5;
+  state.eficiencia = val;
+  save();
+  renderTable();
+});
+
+['Bajo', 'Medio', 'Alto'].forEach((label) => {
+  document.getElementById('aporte' + label).addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    state.aporteSuelo[label.toLowerCase()] = isNaN(val) ? 0 : val;
+    save();
+    renderTable();
+  });
 });
 
 document.getElementById('btnReset').addEventListener('click', () => {
@@ -926,6 +1025,10 @@ function buildResultRows() {
     const nc = d.W >= coef.Wt ? coef.a * Math.pow(d.W, -coef.b) : (coef.plateau !== undefined ? coef.plateau : coef.a);
     const nni = d.N / nc;
     const est = estado(nni);
+    const deficitAbsorbido = Math.max(0, (nc - d.N)) * d.W * 10;
+    const eficiencia = state.eficiencia || 0.5;
+    const aporte = state.aporteSuelo[state.aporteSuelo.nivel] || 0;
+    const dosis = Math.round(Math.max(0, deficitAbsorbido / eficiencia - aporte));
     return {
       Cultivo: cultivoRow,
       ID: d.id,
@@ -933,14 +1036,15 @@ function buildResultRows() {
       '% N observado': d.N,
       '% Nc': Number(nc.toFixed(2)),
       NNI: Number(nni.toFixed(2)),
-      Estado: estadoLabel[est]
+      Estado: estadoLabel[est],
+      'Dosis recomendada (kg N/ha)': dosis > 0 ? dosis : 0
     };
   });
 }
 
 document.getElementById('btnExport').addEventListener('click', () => {
   const rows = buildResultRows();
-  const headers = ['Cultivo', 'ID', 'Biomasa (t MS/ha)', '% N observado', '% Nc', 'NNI', 'Estado'];
+  const headers = ['Cultivo', 'ID', 'Biomasa (t MS/ha)', '% N observado', '% Nc', 'NNI', 'Estado', 'Dosis recomendada (kg N/ha)'];
   let csv = headers.join(',') + '\n';
   rows.forEach(r => { csv += headers.map(h => r[h]).join(',') + '\n'; });
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -956,7 +1060,7 @@ document.getElementById('btnExportXLSX').addEventListener('click', () => {
   const rows = buildResultRows();
   const ws = XLSX.utils.json_to_sheet(rows);
   ws['!cols'] = [
-    { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 12 }
+    { wch: 10 }, { wch: 10 }, { wch: 18 }, { wch: 15 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 22 }
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Resultados');
