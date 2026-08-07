@@ -318,7 +318,7 @@
 
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
-  .table-scroll table { min-width: 700px; }
+  .table-scroll table { min-width: 800px; }
   thead th {
     text-align: left;
     padding: 0 8px 10px;
@@ -514,6 +514,10 @@
         <input type="number" id="inN" step="0.1" min="0" placeholder="ej. 2.8">
       </div>
       <div class="field">
+        <label>Rendimiento esperado (kg/ha, opcional)</label>
+        <input type="number" id="inRendimiento" step="100" min="0" placeholder="ej. 4500">
+      </div>
+      <div class="field">
         <label>Identificador (opcional)</label>
         <input type="text" id="inId" placeholder="ej. Lote 3">
       </div>
@@ -551,6 +555,7 @@
           <th>% Nc</th>
           <th>NNI</th>
           <th>Estado</th>
+          <th>Rend. esp. (kg/ha)</th>
           <th>Dosis (kg N/ha)</th>
           <th></th>
         </tr>
@@ -592,10 +597,6 @@
       <h2 style="margin-top:22px; font-size:15px;">Proyección a floración</h2>
       <div class="row">
         <div class="field">
-          <label>Rendimiento esperado (kg/ha)</label>
-          <input type="number" id="rendimientoEsperado" step="100" min="0">
-        </div>
-        <div class="field">
           <label>Índice de cosecha (IC)</label>
           <input type="number" id="coefIC" step="0.01" min="0.05" max="0.9">
         </div>
@@ -604,7 +605,7 @@
           <input type="number" id="coefFactorFloracion" step="0.01" min="0.1" max="1">
         </div>
       </div>
-      <p class="coef-note">Biomasa objetivo a floración = (Rendimiento esperado / IC) × factor floración/madurez. La dosis recomendada pasa a calcularse contra el N total que el cultivo necesita haber absorbido a floración, no solo contra el estado actual. Se muestra como punto de referencia en el gráfico.</p>
+      <p class="coef-note">Biomasa objetivo a floración = (Rendimiento esperado del punto / IC) × factor floración/madurez. El rendimiento esperado se carga por punto de muestreo (varía lote a lote), no acá — estos dos son constantes del cultivo. La dosis recomendada se calcula contra el N total que el cultivo necesita haber absorbido a floración, no solo contra el estado actual. Se muestra como punto de referencia en el gráfico.</p>
 
       <h2 style="margin-top:22px; font-size:15px;">Aporte de N del suelo</h2>
       <div class="row">
@@ -656,17 +657,15 @@ let state = load() || {
   cultivo: 'trigo',
   coef: { ...DEFAULT_COEF.trigo },
   eficiencia: 0.5,
-  rendimientoEsperado: DEFAULT_COEF.trigo.rendimientoRef,
   aporteSuelo: { nivel: 'medio', bajo: 15, medio: 30, alto: 50 },
   datos: [
     { id: 'P1', W: 0.8, N: 4.6, cultivo: 'trigo' },
-    { id: 'P2', W: 2.3, N: 3.2, cultivo: 'trigo' },
+    { id: 'P2', W: 2.3, N: 3.2, cultivo: 'trigo', rendimientoEsperado: 4500 },
     { id: 'P3', W: 4.0, N: 2.3, cultivo: 'trigo' },
     { id: 'P4', W: 6.0, N: 1.9, cultivo: 'trigo' }
   ]
 };
 if (state.eficiencia === undefined) state.eficiencia = 0.5;
-if (state.rendimientoEsperado === undefined) state.rendimientoEsperado = DEFAULT_COEF[state.cultivo].rendimientoRef;
 if (!state.aporteSuelo) state.aporteSuelo = { nivel: 'medio', bajo: 15, medio: 30, alto: 50 };
 
 function load() {
@@ -687,9 +686,13 @@ function getDatosCultivo() {
     .filter(d => d.cultivo === state.cultivo);
 }
 
-function Nc(W) {
-  const { a, b, Wt, plateau } = state.coef;
+function NcConCoef(W, coef) {
+  const { a, b, Wt, plateau } = coef;
   return W >= Wt ? a * Math.pow(W, -b) : (plateau !== undefined ? plateau : a);
+}
+
+function Nc(W) {
+  return NcConCoef(W, state.coef);
 }
 
 function estado(nni) {
@@ -699,22 +702,22 @@ function estado(nni) {
 }
 
 // Biomasa y %N crítico objetivo a floración, proyectados desde el rendimiento
-// esperado. Devuelve null si no hay rendimiento esperado cargado (> 0).
-function getObjetivoFloracion() {
-  const rendimiento = state.rendimientoEsperado;
-  const { ic, factorFloracion } = state.coef;
-  if (!rendimiento || rendimiento <= 0 || !ic) return null;
+// esperado DE ESE PUNTO (varía lote a lote). Devuelve null si el punto no
+// tiene rendimiento esperado cargado (> 0).
+function getObjetivoFloracion(rendimiento, coef) {
+  if (!rendimiento || rendimiento <= 0 || !coef.ic) return null;
 
-  const biomasaMadurez = (rendimiento / ic) / 1000; // kg/ha -> t MS/ha
-  const biomasa = biomasaMadurez * (factorFloracion || 0.42);
-  const nc = Nc(biomasa);
+  const biomasaMadurez = (rendimiento / coef.ic) / 1000; // kg/ha -> t MS/ha
+  const biomasa = biomasaMadurez * (coef.factorFloracion || 0.42);
+  const nc = NcConCoef(biomasa, coef);
   return { biomasa, nc };
 }
 
-function calcDosisRecomendada(W, Nobs) {
+function calcDosisRecomendada(W, Nobs, rendimiento, coef) {
+  coef = coef || state.coef;
   const eficiencia = state.eficiencia || 0.5;
   const aporte = state.aporteSuelo[state.aporteSuelo.nivel] || 0;
-  const objetivo = getObjetivoFloracion();
+  const objetivo = getObjetivoFloracion(rendimiento, coef);
 
   let deficit;
   if (objetivo) {
@@ -724,8 +727,9 @@ function calcDosisRecomendada(W, Nobs) {
     const nYaAbsorbido = Nobs * W * 10;
     deficit = Math.max(0, nTotalNecesario - nYaAbsorbido);
   } else {
-    // Sin rendimiento esperado cargado: déficit simple contra la curva hoy.
-    const nc = Nc(W);
+    // Sin rendimiento esperado cargado en este punto: déficit simple contra
+    // la curva hoy.
+    const nc = NcConCoef(W, coef);
     deficit = Math.max(0, (nc - Nobs)) * W * 10;
   }
 
@@ -748,7 +752,6 @@ function renderInputs() {
   document.getElementById('coefWt').value = state.coef.Wt;
   document.getElementById('coefPlateau').value = state.coef.plateau !== undefined ? state.coef.plateau : state.coef.a;
   document.getElementById('coefEficiencia').value = state.eficiencia;
-  document.getElementById('rendimientoEsperado').value = state.rendimientoEsperado;
   document.getElementById('coefIC').value = state.coef.ic;
   document.getElementById('coefFactorFloracion').value = state.coef.factorFloracion;
   document.getElementById('aporteBajo').value = state.aporteSuelo.bajo;
@@ -809,7 +812,7 @@ function renderTable() {
     const nc = Nc(d.W);
     const nni = d.N / nc;
     const est = estado(nni);
-    const dosis = calcDosisRecomendada(d.W, d.N);
+    const dosis = calcDosisRecomendada(d.W, d.N, d.rendimientoEsperado, state.coef);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${d.fecha || '-'}</td>
@@ -819,6 +822,7 @@ function renderTable() {
       <td>${nc.toFixed(2)}</td>
       <td>${nni.toFixed(2)}</td>
       <td><span class="badge ${est}">${estadoLabel[est]}</span></td>
+      <td>${d.rendimientoEsperado ? d.rendimientoEsperado : '—'}</td>
       <td>${dosis > 0 ? dosis : '—'}</td>
       <td><button class="del-btn" data-i="${d._idx}" title="Eliminar">&times;</button></td>
     `;
@@ -849,9 +853,13 @@ function renderChart() {
     return { ...d, nc, nni, est: estado(nni) };
   });
 
-  const objetivo = getObjetivoFloracion();
+  const objetivos = rows
+    .filter(r => r.rendimientoEsperado)
+    .map(r => ({ ...getObjetivoFloracion(r.rendimientoEsperado, state.coef), id: r.id, rendimiento: r.rendimientoEsperado }))
+    .filter(o => o.biomasa !== undefined);
 
-  const maxW = Math.max(...rows.map(r => r.W), 6, state.coef.Wt * 4, objetivo ? objetivo.biomasa * 1.15 : 0);
+  const maxBiomasaObjetivo = objetivos.length ? Math.max(...objetivos.map(o => o.biomasa)) : 0;
+  const maxW = Math.max(...rows.map(r => r.W), 6, state.coef.Wt * 4, maxBiomasaObjetivo * 1.15);
   const curveStart = Math.max(0.15, state.coef.Wt * 0.15);
   const step = (maxW - curveStart) / 90;
 
@@ -908,14 +916,15 @@ function renderChart() {
     { label: 'Exceso', data: byEstado.exceso, backgroundColor: estadoHex.exceso, borderColor: '#fffdf8', borderWidth: 2, pointRadius: 7, pointHoverRadius: 10, order: 1 }
   ];
 
-  if (objetivo) {
+  if (objetivos.length) {
     datasets.push({
       label: 'Objetivo a floración',
-      data: [{
-        x: Math.round(objetivo.biomasa * 100) / 100,
-        y: Math.round(objetivo.nc * 100) / 100,
-        rendimiento: state.rendimientoEsperado
-      }],
+      data: objetivos.map(o => ({
+        x: Math.round(o.biomasa * 100) / 100,
+        y: Math.round(o.nc * 100) / 100,
+        id: o.id,
+        rendimiento: o.rendimiento
+      })),
       backgroundColor: '#fffdf8',
       borderColor: CURVE_COLOR,
       borderWidth: 3,
@@ -966,7 +975,7 @@ function renderChart() {
             }
             if (ctx.dataset.label === 'Objetivo a floración') {
               return [
-                `Objetivo a floración`,
+                `Objetivo a floración (${p.id || '-'})`,
                 `Biomasa=${p.x.toFixed(2)} t MS/ha   %Nc=${p.y.toFixed(2)}`,
                 `Rendimiento esperado: ${p.rendimiento} kg/ha`
               ];
@@ -1012,7 +1021,6 @@ document.querySelectorAll('#cropToggle .crop-pill').forEach(btn => {
     if (btn.dataset.crop === state.cultivo) return;
     state.cultivo = btn.dataset.crop;
     state.coef = { ...DEFAULT_COEF[state.cultivo] };
-    state.rendimientoEsperado = DEFAULT_COEF[state.cultivo].rendimientoRef;
     save();
     renderAll();
   });
@@ -1063,14 +1071,6 @@ document.getElementById('coefEficiencia').addEventListener('input', (e) => {
   renderTable();
 });
 
-document.getElementById('rendimientoEsperado').addEventListener('input', (e) => {
-  const val = parseFloat(e.target.value);
-  state.rendimientoEsperado = isNaN(val) || val < 0 ? 0 : val;
-  save();
-  renderTable();
-  renderChart();
-});
-
 document.getElementById('coefIC').addEventListener('input', (e) => {
   const val = parseFloat(e.target.value);
   state.coef.ic = isNaN(val) || val <= 0 ? 0.5 : val;
@@ -1098,7 +1098,6 @@ document.getElementById('coefFactorFloracion').addEventListener('input', (e) => 
 
 document.getElementById('btnReset').addEventListener('click', () => {
   state.coef = { ...DEFAULT_COEF[state.cultivo] };
-  state.rendimientoEsperado = DEFAULT_COEF[state.cultivo].rendimientoRef;
   save();
   renderAll();
 });
@@ -1108,13 +1107,16 @@ document.getElementById('btnAdd').addEventListener('click', () => {
   const N = parseFloat(document.getElementById('inN').value);
   const id = document.getElementById('inId').value.trim();
   const fecha = document.getElementById('inFecha').value;
+  const rendVal = parseFloat(document.getElementById('inRendimiento').value);
+  const rendimientoEsperado = !isNaN(rendVal) && rendVal > 0 ? rendVal : undefined;
   if (!isNaN(W) && !isNaN(N) && W > 0 && N > 0) {
     const nPrevios = getDatosCultivo().length;
-    state.datos.push({ id: id || ('P' + (nPrevios + 1)), W, N, fecha, cultivo: state.cultivo });
+    state.datos.push({ id: id || ('P' + (nPrevios + 1)), W, N, fecha, rendimientoEsperado, cultivo: state.cultivo });
     document.getElementById('inW').value = '';
     document.getElementById('inN').value = '';
     document.getElementById('inId').value = '';
     document.getElementById('inFecha').value = '';
+    document.getElementById('inRendimiento').value = '';
     save();
     renderAll();
   }
@@ -1132,32 +1134,14 @@ function buildResultRows() {
   return state.datos.map(d => {
     const cultivoRow = d.cultivo || 'trigo';
     const coef = DEFAULT_COEF[cultivoRow] || state.coef;
-    const nc = d.W >= coef.Wt ? coef.a * Math.pow(d.W, -coef.b) : (coef.plateau !== undefined ? coef.plateau : coef.a);
+    const nc = NcConCoef(d.W, coef);
     const nni = d.N / nc;
     const est = estado(nni);
 
-    let dosis;
-    let rendimientoUsado = '';
-    let biomasaObjetivo = '';
-    if (cultivoRow === state.cultivo) {
-      // Cultivo activo: mismo cálculo en vivo de la tabla (incluye proyección
-      // a floración si hay rendimiento esperado cargado para este cultivo).
-      dosis = calcDosisRecomendada(d.W, d.N);
-      const objetivo = getObjetivoFloracion();
-      if (objetivo) {
-        rendimientoUsado = state.rendimientoEsperado;
-        biomasaObjetivo = Number(objetivo.biomasa.toFixed(2));
-      }
-    } else {
-      // Otro cultivo: no tenemos guardado su propio rendimiento esperado
-      // (solo se recuerda el del cultivo activo), así que se exporta con el
-      // déficit simple del día, sin proyección a floración.
-      const eficiencia = state.eficiencia || 0.5;
-      const aporte = state.aporteSuelo[state.aporteSuelo.nivel] || 0;
-      const deficitAbsorbido = Math.max(0, (nc - d.N)) * d.W * 10;
-      const deficitNeto = Math.max(0, deficitAbsorbido - aporte);
-      dosis = Math.round(deficitNeto / eficiencia);
-    }
+    const dosis = calcDosisRecomendada(d.W, d.N, d.rendimientoEsperado, coef);
+    const objetivo = getObjetivoFloracion(d.rendimientoEsperado, coef);
+    const rendimientoUsado = d.rendimientoEsperado || '';
+    const biomasaObjetivo = objetivo ? Number(objetivo.biomasa.toFixed(2)) : '';
 
     return {
       Cultivo: cultivoRow,
@@ -1215,14 +1199,16 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     const startIdx = looksLikeHeader ? 1 : 0;
 
     const idxCultivo = headerCells.findIndex(c => c.includes('cultivo'));
+    const idxFecha = headerCells.findIndex(c => c === 'fecha');
     const idxId = headerCells.findIndex(c => c === 'id');
     const idxW = headerCells.findIndex(c => c.includes('biomasa') || c === 'w');
     const idxN = headerCells.findIndex(c => c.includes('% n observado') || c.includes('%n') || c === 'n');
+    const idxRendimiento = headerCells.findIndex(c => c.includes('rendimiento esperado'));
 
     const nuevos = [];
     for (let i = startIdx; i < lines.length; i++) {
       const parts = lines[i].split(',').map(p => p.trim());
-      let id, W, N, cultivoRow;
+      let id, W, N, cultivoRow, fecha, rendimientoEsperado;
 
       if (idxW !== -1 && idxN !== -1) {
         // Formato con encabezado reconocido (propio o exportado)
@@ -1230,6 +1216,11 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
         W = parseFloat(parts[idxW]);
         N = parseFloat(parts[idxN]);
         cultivoRow = idxCultivo !== -1 ? parts[idxCultivo].toLowerCase() : state.cultivo;
+        fecha = idxFecha !== -1 ? parts[idxFecha] : '';
+        if (idxRendimiento !== -1) {
+          const r = parseFloat(parts[idxRendimiento]);
+          rendimientoEsperado = !isNaN(r) && r > 0 ? r : undefined;
+        }
       } else if (parts.length >= 3) {
         [id, W, N] = parts;
         W = parseFloat(W); N = parseFloat(N);
@@ -1242,7 +1233,7 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
 
       if (!isNaN(W) && !isNaN(N) && W > 0 && N > 0) {
         if (!DEFAULT_COEF[cultivoRow]) cultivoRow = state.cultivo;
-        nuevos.push({ id: id || ('P' + (i + 1)), W, N, cultivo: cultivoRow });
+        nuevos.push({ id: id || ('P' + (i + 1)), W, N, fecha, rendimientoEsperado, cultivo: cultivoRow });
       }
     }
     state.datos = state.datos.concat(nuevos);
